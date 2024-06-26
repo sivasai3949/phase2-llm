@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NAAVI-AI</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <link rel="icon" href="{{ url_for('static', filename='../static/favicon.jpg') }}" type="image/x-icon">
+</head>
+<body>
+    <div class="chatbot-container">
+        <header>
+            <img src="{{ url_for('static', filename='nav_logo.svg') }}" alt="logo Icon" class="logo-icon">
+            <img src="{{ url_for('static', filename='Chatbot3.gif') }}" alt="Robot Icon" class="robot-icon">
+        </header>
+        <div class="chat-container" id="chat-container">
+            <div class="chat">
+                <div class="chat-bubble robot"> Hii "For Generating your personalised education pathways, please describe in few lines about your background, educational experiences, aspirations and higher education goals, as well as any financial constraints"</div>
+                <div class="chat-bubble robot">{{ initial_question }}</div>
+            </div>
+        </div>
+        <div class="input-container" id="input-container">
+            <input type="text" id="user-input" placeholder="Type your message...">
+            <button id="send-btn">Send</button>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>

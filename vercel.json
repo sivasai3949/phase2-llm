@@ -1,0 +1,28 @@
+{
+    "version": 2,
+    "builds": [
+      {
+        "src": "flask.py",
+        "use": "@vercel/python"
+      },
+      {
+        "src": "templates/**/*.html",
+        "use": "@vercel/static-build"
+      },
+      {
+        "src": "static/**/*",
+        "use": "@vercel/static"
+      }
+    ],
+    "routes": [
+      {
+        "src": "/(.*)",
+        "dest": "flask.py"
+      }
+    ],
+    "env": {
+      "COHERE_API_KEY": "@cohere_api_key",
+      "SECRET_KEY": "@secret_key"
+    }
+  }
+  
