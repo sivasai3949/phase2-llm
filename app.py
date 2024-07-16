@@ -1,36 +1,29 @@
-from fastapi import FastAPI, Request, Form, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.templating import Jinja2Templates
-from fastapi.staticfiles import StaticFiles
-from starlette.middleware.sessions import SessionMiddleware
-import openai
+from flask import Flask, render_template, request, session, jsonify
+import cohere
 from dotenv import load_dotenv
 import os
 
-app = FastAPI()
+app = Flask(__name__)
 
 # Load environment variables from .env file
 load_dotenv()
-openai.api_key = os.getenv("OPENAI_API_KEY")
-SECRET_KEY = os.getenv("SECRET_KEY")
 
-# Mount static files
-app.mount("/static", StaticFiles(directory="static"), name="static")
+# Set up Cohere API client
+cohere_api_key = os.getenv("COHERE_API_KEY")
+co = cohere.Client(cohere_api_key)
 
-# Initialize Jinja2 templates
-templates = Jinja2Templates(directory="templates")
+# Set secret key for session management
+app.secret_key = os.getenv("SECRET_KEY")
 
-# Enable session handling
-app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
-
-# Initial questions
+# Updated questions for the user
 questions = [
-    "To gain further understanding, can you please describe your educational experience?",
-    "What are your aspirations and higher education goals (e.g., want to study abroad or at elite universities)?",
+    "Please introduce about yourself with basic background information such where are you based, language, education",
+    "To gain further understanding can you please describe your educational experience",
+    "What are your aspirations, and higher education Goals (want to study abroad or study at elite universities?",
     "Please describe if there are any financial constraints?"
 ]
 
-# Options to present after initial questions
+# Options presented after initial questions
 final_options = [
     "Would you like a detailed roadmap to achieve your career goals considering your academics, financial status, and study locations?",
     "Do you want personalized career guidance based on your academic performance, financial status, and desired study locations?",
@@ -38,66 +31,72 @@ final_options = [
     "Other"
 ]
 
-@app.get("/", response_class=HTMLResponse)
-async def home(request: Request):
-    # Reset session variables
-    request.session.clear()
-    request.session['question_index'] = 0
-    request.session['user_responses'] = []
+# Home route to start the chatbot
+@app.route('/')
+def home():
+    session.clear()  # Clear session to start fresh
+    session['question_index'] = 0  # Initialize question index
+    session['user_responses'] = []  # Initialize user responses list
+    return render_template('home.html', initial_question=questions[0])
 
-    # Render template with introductory message
-    return templates.TemplateResponse("chat.html", {"request": request, "intro_message": "Hi I am Naavi, your personal coach and navigator for higher education...😊"})
-
-@app.post("/process_chat")
-async def process_chat(request: Request, user_input: str = Form(...)):
-    question_index = request.session.get('question_index', 0)
-    user_responses = request.session.get('user_responses', [])
-
-    # Ensure to store user input if not the first question
-    if question_index > 0:
+# Endpoint to process user input
+@app.route('/process_chat', methods=['POST'])
+def process_chat():
+    user_input = request.form.get('user_input')
+    
+    if user_input:
+        question_index = session.get('question_index', 0)
+        user_responses = session.get('user_responses', [])
         user_responses.append(user_input)
-        request.session['user_responses'] = user_responses
+        session['user_responses'] = user_responses
+        
+        if question_index < len(questions):
+            question_index += 1
+            session['question_index'] = question_index
+            
+            if question_index < len(questions):
+                return jsonify({'question': questions[question_index]})
+            else:
+                return jsonify({'options': final_options})
+        
+        else:
+            try:
+                detailed_prompt = create_detailed_prompt(user_responses)
+                bot_response = get_cohere_response(detailed_prompt)
+                return jsonify({'response': bot_response})
+            except cohere.error.CohereAPIError as e:
+                app.logger.error(f"Cohere API error: {str(e)}")
+                return jsonify({'error': 'Sorry, something went wrong with the AI service. Please try again later.'}), 500
+    
+    return jsonify({'error': 'Invalid input'}), 400
 
-    if question_index < len(questions):
-        next_question = questions[question_index]
-        request.session['question_index'] = question_index + 1
-        return JSONResponse({'question': next_question})
-    else:
-        request.session['question_index'] = len(questions)  # Ensure index is at the end
-        return JSONResponse({'options': final_options})
+# Function to create a detailed prompt based on user responses
+def create_detailed_prompt(user_responses):
+    prompt = "Based on the following information provided by the user:\n"
+    prompt += f"1. Basic Background Information: {user_responses[0]}\n"
+    prompt += f"2. Educational Experience: {user_responses[1]}\n"
+    prompt += f"3. Aspirations and Higher Education Goals: {user_responses[2]}\n"
+    prompt += f"4. Financial Constraints: {user_responses[3]}\n"
+    prompt += "Please generate a detailed roadmap or personalized career guidance."
+    return prompt
 
-@app.post("/process_final_option")
-async def process_final_option(request: Request, user_input: str = Form(...)):
-    user_responses = request.session.get('user_responses', [])
-    user_responses.append(user_input)  # Add the option chosen by the user
-    bot_response = await get_ai_response(user_responses)
-    return JSONResponse({'response': bot_response})
-
-async def get_ai_response(user_responses):
-    messages = [{"role": "user", "content": response} for response in user_responses]
-
-    final_prompt = (
-        "Based on the information provided, generate three distinct pathways for achieving the user's educational and career goals. "
-        "Each pathway should be clearly separated and include step-by-step guidance on academic focus, extracurricular activities, standardized tests, undergraduate education, gaining relevant experience, financial planning, residency, licensing, and additional tips. "
-        "Each step should be detailed and easy to understand. Provide specific resources, examples, and tips to help the user along the way."
-    )
-
-    messages.append({"role": "user", "content": final_prompt})
-
+# Function to get response from Cohere API
+def get_cohere_response(input_text):
     try:
-        completion = openai.ChatCompletion.create(
-            model="gpt-4",
-            messages=messages,
-            max_tokens=4096,
-            temperature=0.7,
-            top_p=1
+        response = co.generate(
+            model='command-nightly',
+            prompt=input_text,
+            max_tokens=300,
+            temperature=0.9,
+            k=0,
+            p=0.75,
+            stop_sequences=[],
+            return_likelihoods='NONE'
         )
-        return completion.choices[0].message['content']
-    except openai.error.RateLimitError:
-        raise HTTPException(status_code=429, detail="Rate limit exceeded. Please try again later.")
-    except openai.error.OpenAIError as e:
-        raise HTTPException(status_code=500, detail="Sorry, something went wrong with the AI service. Please try again later.")
+        return response.generations[0].text.strip()
+    
+    except cohere.error.CohereAPIError as e:
+        raise RuntimeError(f"Error from Cohere API: {str(e)}")  # Propagate the error for logging and handling
 
 if __name__ == '__main__':
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    app.run(debug=True)
